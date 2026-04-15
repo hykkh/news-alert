@@ -1,0 +1,47 @@
+{
+  "expo": {
+    "name": "키워드 뉴스",
+    "slug": "news-alert",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.kkh.keywordnews",
+      "permissions": [
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-web-browser",
+      "expo-notifications",
+      "expo-background-fetch",
+      "expo-task-manager"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0423aac5-9723-4535-b9a7-a8b68fcb9860"
+      }
+    },
+    "owner": "kimjasang"
+  }
+}
