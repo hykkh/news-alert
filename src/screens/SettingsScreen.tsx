@@ -7,6 +7,14 @@ import { getServerUrl, setServerUrl } from "../services/keywordService";
 import { getNaverApiKeys, setNaverApiKeys, hasNaverApiKeys, getApiKeySource } from "../services/naverKeyService";
 import type { ApiKeySource } from "../services/naverKeyService";
 import { generateShareCode, decodeShareCode } from "../services/shareKeyService";
+import {
+  getPermissionStatus,
+  requestNotificationPermission,
+  requestBatteryOptimizationExemption,
+  requestExactAlarmPermission,
+  openAppSettings,
+  type PermissionStatus,
+} from "../services/permissionsService";
 
 const { NewsPrefs } = NativeModules;
 
@@ -41,11 +49,22 @@ export default function SettingsScreen() {
   const [guideVisible, setGuideVisible] = useState(false);
   const [shareCode, setShareCode] = useState("");
   const [shareInputCode, setShareInputCode] = useState("");
+  const [perms, setPerms] = useState<PermissionStatus>({
+    notification: true,
+    batteryOptimization: true,
+    exactAlarm: true,
+  });
+
+  const refreshPermissions = async () => {
+    const s = await getPermissionStatus();
+    setPerms(s);
+  };
 
   useEffect(() => {
     loadSettings();
     loadBlockedSources();
     loadApiSources();
+    refreshPermissions();
     getServerUrl().then(setServerUrlState);
 
     // 키 로딩: source가 "shared"면 실제 값을 state에 올리지 않음 (UI·메모리 양쪽 은닉)
@@ -190,8 +209,101 @@ export default function SettingsScreen() {
     return (current + direction + 24) % 24;
   };
 
+  const handleRequestNotification = async () => {
+    const granted = await requestNotificationPermission();
+    await refreshPermissions();
+    if (!granted) {
+      Alert.alert(
+        "권한 허용 필요",
+        "알림을 받으려면 설정에서 알림 권한을 허용해주세요",
+        [
+          { text: "취소", style: "cancel" },
+          { text: "설정 열기", onPress: () => { openAppSettings(); } },
+        ]
+      );
+    }
+  };
+
+  const handleRequestBattery = async () => {
+    await requestBatteryOptimizationExemption();
+    // 사용자가 설정 화면에서 돌아올 시간을 준 뒤 재확인
+    setTimeout(() => { refreshPermissions(); }, 500);
+  };
+
+  const handleRequestExactAlarm = async () => {
+    await requestExactAlarmPermission();
+    setTimeout(() => { refreshPermissions(); }, 500);
+  };
+
+  const allPermsOk = perms.notification && perms.batteryOptimization && perms.exactAlarm;
+
   return (
     <ScrollView style={styles.container}>
+      <Text style={styles.sectionTitle}>권한 상태</Text>
+
+      {!allPermsOk && (
+        <View style={styles.permWarnBox}>
+          <Text style={styles.permWarnText}>
+            일부 권한이 허용되지 않아 백그라운드에서 알림이 오지 않을 수 있어요. 아래 "허용하기"를 눌러 설정해주세요.
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.permRow}>
+        <View style={styles.permInfo}>
+          <Text style={styles.permLabel}>알림 권한</Text>
+          <Text style={styles.permDesc}>새 뉴스 알림을 받기 위해 필요합니다</Text>
+        </View>
+        <View style={styles.permActions}>
+          <View style={[styles.permBadge, perms.notification ? styles.permBadgeOk : styles.permBadgeNo]}>
+            <Text style={styles.permBadgeText}>{perms.notification ? "허용됨" : "미허용"}</Text>
+          </View>
+          {!perms.notification && (
+            <TouchableOpacity style={styles.permBtn} onPress={handleRequestNotification}>
+              <Text style={styles.permBtnText}>허용하기</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.permRow}>
+        <View style={styles.permInfo}>
+          <Text style={styles.permLabel}>배터리 최적화 해제</Text>
+          <Text style={styles.permDesc}>잠금 화면에서도 알림이 오려면 필요합니다</Text>
+        </View>
+        <View style={styles.permActions}>
+          <View style={[styles.permBadge, perms.batteryOptimization ? styles.permBadgeOk : styles.permBadgeNo]}>
+            <Text style={styles.permBadgeText}>{perms.batteryOptimization ? "허용됨" : "미허용"}</Text>
+          </View>
+          {!perms.batteryOptimization && (
+            <TouchableOpacity style={styles.permBtn} onPress={handleRequestBattery}>
+              <Text style={styles.permBtnText}>허용하기</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.permRow}>
+        <View style={styles.permInfo}>
+          <Text style={styles.permLabel}>정확한 알람</Text>
+          <Text style={styles.permDesc}>설정한 주기마다 정확히 뉴스를 확인합니다</Text>
+        </View>
+        <View style={styles.permActions}>
+          <View style={[styles.permBadge, perms.exactAlarm ? styles.permBadgeOk : styles.permBadgeNo]}>
+            <Text style={styles.permBadgeText}>{perms.exactAlarm ? "허용됨" : "미허용"}</Text>
+          </View>
+          {!perms.exactAlarm && (
+            <TouchableOpacity style={styles.permBtn} onPress={handleRequestExactAlarm}>
+              <Text style={styles.permBtnText}>허용하기</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      <TouchableOpacity style={styles.permRefresh} onPress={refreshPermissions}>
+        <Text style={styles.permRefreshText}>상태 새로고침</Text>
+      </TouchableOpacity>
+
       <Text style={styles.sectionTitle}>알림 설정</Text>
 
       <View style={styles.settingItem}>
@@ -446,7 +558,7 @@ export default function SettingsScreen() {
       <Text style={styles.sectionTitle}>앱 정보</Text>
       <View style={styles.settingItem}>
         <Text style={styles.settingLabel}>버전</Text>
-        <Text style={styles.settingDesc}>2.2.0</Text>
+        <Text style={styles.settingDesc}>2.3.0</Text>
       </View>
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -638,4 +750,48 @@ const styles = StyleSheet.create({
   },
   shareCodeLabel: { fontSize: 12, color: "#999", marginBottom: 6 },
   shareCodeText: { fontSize: 13, color: "#333", fontFamily: "monospace", lineHeight: 20 },
+  permWarnBox: {
+    backgroundColor: "#FFF3E0",
+    marginHorizontal: 16,
+    marginBottom: 8,
+    padding: 12,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#FB8C00",
+  },
+  permWarnText: { fontSize: 13, color: "#8B4513", lineHeight: 19 },
+  permRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "#eee",
+  },
+  permInfo: { flex: 1, paddingRight: 10 },
+  permLabel: { fontSize: 15, color: "#333", fontWeight: "500" },
+  permDesc: { fontSize: 12, color: "#999", marginTop: 2 },
+  permActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  permBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  permBadgeOk: { backgroundColor: "#E8F5E9" },
+  permBadgeNo: { backgroundColor: "#FFEBEE" },
+  permBadgeText: { fontSize: 12, fontWeight: "600", color: "#555" },
+  permBtn: {
+    backgroundColor: "#4A90D9",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  permBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  permRefresh: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  permRefreshText: { fontSize: 12, color: "#4A90D9" },
 });

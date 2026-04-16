@@ -11,7 +11,7 @@ import KeywordScreen from "./src/screens/KeywordScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import { registerForPushNotifications, checkForNewNews } from "./src/services/notificationService";
 import { getKeywords, primeSeenOnFirstRun } from "./src/services/keywordService";
-import { requestBatteryOptimization } from "./src/services/batteryOptimization";
+import { primePermissionsOnFirstRun } from "./src/services/permissionsService";
 import { NativeModules } from "react-native";
 
 const Tab = createBottomTabNavigator();
@@ -23,9 +23,10 @@ export default function App() {
     // 푸시 알림 등록 (권한 허용 시 Expo 토큰 PC 서버에 자동 등록)
     registerForPushNotifications().catch(console.error);
 
-    // 배터리 최적화 해제 안내 (Android, 1회만) - Activity 준비 후 호출
-    const batteryTimer = setTimeout(() => {
-      requestBatteryOptimization().catch(() => {});
+    // 최초 실행 시 필요한 권한을 순차적으로 요청
+    // (알림 → 배터리 최적화 예외 → 정확한 알람) - Activity 준비 후 호출
+    const permsTimer = setTimeout(() => {
+      primePermissionsOnFirstRun().catch(() => {});
     }, 2500);
 
     // 알림 클릭 시 뉴스 링크 열기
@@ -74,7 +75,7 @@ export default function App() {
       subscription.remove();
       appStateSub.remove();
       if (intervalRef.current) clearInterval(intervalRef.current);
-      clearTimeout(batteryTimer);
+      clearTimeout(permsTimer);
     };
   }, []);
 
