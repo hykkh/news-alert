@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, NativeModules, Platform, TextInput, Alert, Linking, Clipboard } from "react-native";
+import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, NativeModules, Platform, TextInput, Alert, Linking, Share } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NEWS_SOURCES, getBlockedSources, toggleSource } from "../services/filterService";
 import { getApiSources, setApiSources, ApiSources } from "../services/newsService";
@@ -77,8 +77,7 @@ export default function SettingsScreen() {
     }
     const code = generateShareCode(id, secret);
     setShareCode(code);
-    Clipboard.setString(code);
-    Alert.alert("공유 코드 생성됨", "클립보드에 복사되었습니다.\n이 코드를 앱을 공유할 분께 전달하세요.\n\n받은 분은 설정 → 공유 코드 입력란에 붙여넣으면 됩니다.");
+    Share.share({ message: code, title: "키워드뉴스 API 공유 코드" });
   };
 
   const handleApplyShareCode = async () => {
