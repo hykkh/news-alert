@@ -37,6 +37,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# PC push server runtime
+push-server.log
+
 # generated native folders
 /ios
 /android

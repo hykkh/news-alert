@@ -1,11 +1,13 @@
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
+import Constants from "expo-constants";
 import { Platform } from "react-native";
-import { getKeywords, getSeenNewsIds, markNewsAsSeen } from "./keywordService";
+import { getKeywords, getSeenNewsIds, markNewsAsSeen, getServerUrl } from "./keywordService";
 import { searchNews } from "./newsService";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const SETTINGS_KEY = "app_settings";
+const LAST_TOKEN_KEY = "last_push_token";
 
 // 알림 핸들러 설정
 Notifications.setNotificationHandler({
@@ -54,7 +56,67 @@ export async function registerForPushNotifications(): Promise<string | null> {
     });
   }
 
-  return "local-only";
+  // ── Expo push token 획득 후 PC 서버에 등록 ──
+  try {
+    const projectId =
+      (Constants.expoConfig as any)?.extra?.eas?.projectId ||
+      (Constants.easConfig as any)?.projectId;
+    if (!projectId) return "local-only";
+    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId });
+    if (!token) return "local-only";
+
+    const serverUrl = await getServerUrl();
+    if (serverUrl) {
+      const lastToken = await AsyncStorage.getItem(LAST_TOKEN_KEY);
+      if (lastToken !== token) {
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3000);
+          await fetch(`${serverUrl}/register-token`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+          await AsyncStorage.setItem(LAST_TOKEN_KEY, token);
+          console.log("푸시 토큰 PC 서버 등록 완료");
+        } catch (e) {
+          console.log("PC 서버 토큰 등록 실패 (서버 꺼져있을 수 있음)");
+        }
+      }
+    }
+    return token;
+  } catch (e) {
+    console.log("Expo 푸시 토큰 발급 실패 - 로컬 알림만 사용", e);
+    return "local-only";
+  }
+}
+
+// PC 서버 URL이 나중에 설정될 때 수동으로 토큰 재등록
+export async function retryRegisterToken(): Promise<boolean> {
+  try {
+    const lastToken = await AsyncStorage.getItem(LAST_TOKEN_KEY);
+    if (!lastToken) {
+      // 토큰 없으면 처음부터 등록 시도
+      const result = await registerForPushNotifications();
+      return result !== null && result !== "local-only";
+    }
+    const serverUrl = await getServerUrl();
+    if (!serverUrl) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const res = await fetch(`${serverUrl}/register-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: lastToken }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function sendLocalNotification(title: string, body: string, data?: any) {

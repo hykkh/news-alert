@@ -7,6 +7,14 @@ export const SERVER_URL_KEY = "pc_server_url";
 
 const { NewsPrefs } = NativeModules;
 
+// ── 키워드 변경 작업 직렬화 (race 방지) ──
+let keywordMutex: Promise<unknown> = Promise.resolve();
+function withKeywordLock<T>(fn: () => Promise<T>): Promise<T> {
+  const p = keywordMutex.then(() => fn(), () => fn());
+  keywordMutex = p.catch(() => undefined);
+  return p;
+}
+
 // ── PC 서버 URL ──────────────────────────────────────────────
 export async function getServerUrl(): Promise<string> {
   return (await AsyncStorage.getItem(SERVER_URL_KEY)) || "";
@@ -55,24 +63,36 @@ export async function getKeywords(): Promise<string[]> {
 }
 
 export async function addKeyword(keyword: string): Promise<string[]> {
-  const keywords = await getKeywords();
-  const trimmed = keyword.trim();
-  if (trimmed && !keywords.includes(trimmed)) {
-    keywords.push(trimmed);
-    await AsyncStorage.setItem(KEYWORDS_KEY, JSON.stringify(keywords));
-    await syncToNative(keywords);
-    await syncToServer(keywords);
-  }
-  return keywords;
+  return withKeywordLock(async () => {
+    const keywords = await getKeywords();
+    const trimmed = keyword.trim();
+    if (trimmed && !keywords.includes(trimmed)) {
+      keywords.push(trimmed);
+      await AsyncStorage.setItem(KEYWORDS_KEY, JSON.stringify(keywords));
+      await syncToNative(keywords);
+      await syncToServer(keywords);
+      // 새 키워드 현재 기사를 "본 것"으로 기록 → 추가 즉시 대량 알림 방지
+      try {
+        const { searchNews } = await import("./newsService");
+        const items = await searchNews(trimmed, 20);
+        if (items.length > 0) {
+          await markNewsAsSeen(items.map((it) => it.link));
+        }
+      } catch {}
+    }
+    return keywords;
+  });
 }
 
 export async function removeKeyword(keyword: string): Promise<string[]> {
-  let keywords = await getKeywords();
-  keywords = keywords.filter((k) => k !== keyword);
-  await AsyncStorage.setItem(KEYWORDS_KEY, JSON.stringify(keywords));
-  await syncToNative(keywords);
-  await syncToServer(keywords);
-  return keywords;
+  return withKeywordLock(async () => {
+    let keywords = await getKeywords();
+    keywords = keywords.filter((k) => k !== keyword);
+    await AsyncStorage.setItem(KEYWORDS_KEY, JSON.stringify(keywords));
+    await syncToNative(keywords);
+    await syncToServer(keywords);
+    return keywords;
+  });
 }
 
 export async function getSeenNewsIds(): Promise<Set<string>> {
@@ -85,4 +105,26 @@ export async function markNewsAsSeen(links: string[]): Promise<void> {
   links.forEach((link) => seen.add(link));
   const arr = Array.from(seen).slice(-500);
   await AsyncStorage.setItem(SEEN_NEWS_KEY, JSON.stringify(arr));
+}
+
+// ── 첫 실행 시 기존 뉴스를 모두 "본 것"으로 기록 (알림 홍수 방지) ──
+const FIRST_RUN_KEY = "first_run_primed";
+export async function primeSeenOnFirstRun(): Promise<void> {
+  if ((await AsyncStorage.getItem(FIRST_RUN_KEY)) === "true") return;
+  try {
+    const { searchNews } = await import("./newsService");
+    const keywords = await getKeywords();
+    const allLinks: string[] = [];
+    for (const kw of keywords) {
+      try {
+        const items = await searchNews(kw, 20);
+        items.forEach((it) => allLinks.push(it.link));
+      } catch {}
+    }
+    if (allLinks.length > 0) {
+      await markNewsAsSeen(allLinks);
+    }
+  } finally {
+    await AsyncStorage.setItem(FIRST_RUN_KEY, "true");
+  }
 }

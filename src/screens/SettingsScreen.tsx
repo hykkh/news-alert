@@ -4,7 +4,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NEWS_SOURCES, getBlockedSources, toggleSource } from "../services/filterService";
 import { getApiSources, setApiSources, ApiSources } from "../services/newsService";
 import { getServerUrl, setServerUrl } from "../services/keywordService";
-import { getNaverApiKeys, setNaverApiKeys, hasNaverApiKeys, getApiKeySource, ApiKeySource } from "../services/naverKeyService";
+import { getNaverApiKeys, setNaverApiKeys, hasNaverApiKeys, getApiKeySource } from "../services/naverKeyService";
+import type { ApiKeySource } from "../services/naverKeyService";
 import { generateShareCode, decodeShareCode } from "../services/shareKeyService";
 
 const { NewsPrefs } = NativeModules;
@@ -46,12 +47,25 @@ export default function SettingsScreen() {
     loadBlockedSources();
     loadApiSources();
     getServerUrl().then(setServerUrlState);
-    getNaverApiKeys().then(({ clientId, clientSecret }) => {
-      setNaverClientId(clientId);
-      setNaverClientSecret(clientSecret);
-      setNaverKeySaved(clientId.length > 0 && clientSecret.length > 0);
-    });
-    getApiKeySource().then(setNaverKeySource);
+
+    // 키 로딩: source가 "shared"면 실제 값을 state에 올리지 않음 (UI·메모리 양쪽 은닉)
+    (async () => {
+      const src = await getApiKeySource();
+      setNaverKeySource(src);
+      if (src === "shared") {
+        // 공유받은 상태: 존재 여부만 확인, 값 자체는 가져오지 않음
+        const exists = await hasNaverApiKeys();
+        setNaverKeySaved(exists);
+        setNaverClientId("");
+        setNaverClientSecret("");
+      } else {
+        // 직접등록 or 미등록: 기존 값 로딩
+        const { clientId, clientSecret } = await getNaverApiKeys();
+        setNaverClientId(clientId);
+        setNaverClientSecret(clientSecret);
+        setNaverKeySaved(clientId.length > 0 && clientSecret.length > 0);
+      }
+    })();
   }, []);
 
   const handleNaverKeySave = async () => {
