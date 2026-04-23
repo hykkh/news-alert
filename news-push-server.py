@@ -34,7 +34,9 @@ def _load_env(path):
             if k and k not in os.environ: os.environ[k] = v
 
 import os
-for _ep in [SCRIPT_DIR / ".env", Path.home() / "OneDrive" / "claude-sync" / "news-alert" / ".env"]:
+_H_SECRETS = Path(os.environ.get("H_SECRETS") or r"C:\H-Secrets")
+for _ep in [_H_SECRETS / "news-alert" / ".env", SCRIPT_DIR / ".env",
+            Path.home() / "OneDrive" / "claude-sync" / "news-alert" / ".env"]:
     if _ep.is_file(): _load_env(_ep); break
 
 NAVER_CLIENT_ID = os.environ.get("NAVER_CLIENT_ID", "")
