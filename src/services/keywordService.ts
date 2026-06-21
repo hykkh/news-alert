@@ -5,6 +5,16 @@ const KEYWORDS_KEY = "news_keywords";
 const SEEN_NEWS_KEY = "seen_news";
 export const SERVER_URL_KEY = "pc_server_url";
 
+// 공유받은 사용자(source="shared")는 키워드 최대 개수 제한
+export const MAX_KEYWORDS_FOR_SHARED = 3;
+
+export class SharedKeywordLimitError extends Error {
+  constructor(limit: number) {
+    super(`공유받은 API 키는 키워드 최대 ${limit}개까지만 등록할 수 있습니다.`);
+    this.name = "SharedKeywordLimitError";
+  }
+}
+
 const { NewsPrefs } = NativeModules;
 
 // ── 키워드 변경 작업 직렬화 (race 방지) ──
@@ -67,6 +77,12 @@ export async function addKeyword(keyword: string): Promise<string[]> {
     const keywords = await getKeywords();
     const trimmed = keyword.trim();
     if (trimmed && !keywords.includes(trimmed)) {
+      // 공유받은 사용자 제한 (이중 방어 — UI 단에서도 체크함)
+      const { getApiKeySource } = await import("./naverKeyService");
+      const source = await getApiKeySource();
+      if (source === "shared" && keywords.length >= MAX_KEYWORDS_FOR_SHARED) {
+        throw new SharedKeywordLimitError(MAX_KEYWORDS_FOR_SHARED);
+      }
       keywords.push(trimmed);
       await AsyncStorage.setItem(KEYWORDS_KEY, JSON.stringify(keywords));
       await syncToNative(keywords);

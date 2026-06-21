@@ -10,11 +10,20 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { getKeywords, addKeyword, removeKeyword, syncKeywordsToNative } from "../services/keywordService";
+import {
+  getKeywords,
+  addKeyword,
+  removeKeyword,
+  syncKeywordsToNative,
+  MAX_KEYWORDS_FOR_SHARED,
+  SharedKeywordLimitError,
+} from "../services/keywordService";
+import { getApiKeySource, type ApiKeySource } from "../services/naverKeyService";
 
 export default function KeywordScreen() {
   const [keywords, setKeywords] = useState<string[]>([]);
   const [input, setInput] = useState("");
+  const [keySource, setKeySource] = useState<ApiKeySource | null>(null);
 
   useEffect(() => {
     loadKeywords();
@@ -23,6 +32,8 @@ export default function KeywordScreen() {
   const loadKeywords = async () => {
     const kws = await getKeywords();
     setKeywords(kws);
+    const src = await getApiKeySource();
+    setKeySource(src);
     await syncKeywordsToNative(); // 앱 시작/화면 진입 시 네이티브 동기화
   };
 
@@ -33,9 +44,25 @@ export default function KeywordScreen() {
       Alert.alert("알림", "이미 등록된 키워드입니다");
       return;
     }
-    const updated = await addKeyword(trimmed);
-    setKeywords(updated);
-    setInput("");
+    // 공유받은 상태는 최대 3개까지
+    if (keySource === "shared" && keywords.length >= MAX_KEYWORDS_FOR_SHARED) {
+      Alert.alert(
+        "키워드 한도",
+        `공유받은 API 키는 키워드 최대 ${MAX_KEYWORDS_FOR_SHARED}개까지만 등록할 수 있습니다.\n\n직접 API 키를 발급받으시면 제한 없이 사용 가능합니다.`
+      );
+      return;
+    }
+    try {
+      const updated = await addKeyword(trimmed);
+      setKeywords(updated);
+      setInput("");
+    } catch (e) {
+      if (e instanceof SharedKeywordLimitError) {
+        Alert.alert("키워드 한도", e.message);
+      } else {
+        Alert.alert("오류", "키워드 추가 중 오류가 발생했습니다");
+      }
+    }
   };
 
   const handleRemove = (keyword: string) => {
@@ -68,7 +95,18 @@ export default function KeywordScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={styles.sectionTitle}>등록된 키워드 ({keywords.length})</Text>
+      {keySource === "shared" && (
+        <View style={styles.sharedLimitBox}>
+          <Text style={styles.sharedLimitText}>
+            공유받은 API 키: 키워드 최대 {MAX_KEYWORDS_FOR_SHARED}개까지 등록 가능 ({keywords.length}/{MAX_KEYWORDS_FOR_SHARED})
+          </Text>
+        </View>
+      )}
+
+      <Text style={styles.sectionTitle}>
+        등록된 키워드 ({keywords.length}
+        {keySource === "shared" ? `/${MAX_KEYWORDS_FOR_SHARED}` : ""})
+      </Text>
 
       <FlatList
         data={keywords}
@@ -142,4 +180,14 @@ const styles = StyleSheet.create({
   emptyContainer: { alignItems: "center", paddingTop: 40 },
   emptyText: { fontSize: 16, color: "#999", marginBottom: 4 },
   emptyHint: { fontSize: 13, color: "#ccc" },
+  sharedLimitBox: {
+    backgroundColor: "#EDE7F6",
+    marginHorizontal: 12,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: "#7E57C2",
+  },
+  sharedLimitText: { fontSize: 13, color: "#4527A0", fontWeight: "500" },
 });

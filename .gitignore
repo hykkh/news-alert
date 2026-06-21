@@ -1,4 +1,4 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+﻿# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
 
 # dependencies
 node_modules/
@@ -43,3 +43,10 @@ push-server.log
 # generated native folders
 /ios
 /android
+*.apk
+*.aab
+build/
+dist-apk/
+*.log
+__pycache__/
+maven-proxy.log

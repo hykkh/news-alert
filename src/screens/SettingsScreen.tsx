@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, Switch, TouchableOpacity, ScrollView, NativeModules, Platform, TextInput, Alert, Linking, Share } from "react-native";
+import qrcodeGen from "qrcode-generator";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NEWS_SOURCES, getBlockedSources, toggleSource } from "../services/filterService";
 import { getApiSources, setApiSources, ApiSources } from "../services/newsService";
@@ -7,6 +8,8 @@ import { getServerUrl, setServerUrl } from "../services/keywordService";
 import { getNaverApiKeys, setNaverApiKeys, hasNaverApiKeys, getApiKeySource } from "../services/naverKeyService";
 import type { ApiKeySource } from "../services/naverKeyService";
 import { generateShareCode, decodeShareCode } from "../services/shareKeyService";
+import { checkForUpdate, openUpdateDownload } from "../services/updateChecker";
+import pkg from "../../package.json";
 import {
   getPermissionStatus,
   requestNotificationPermission,
@@ -59,6 +62,26 @@ export default function SettingsScreen() {
     const s = await getPermissionStatus();
     setPerms(s);
   };
+
+  // shareCode → QR matrix (pure JS, 네이티브 모듈 의존 없음)
+  const qrMatrix = useMemo<boolean[][] | null>(() => {
+    if (!shareCode) return null;
+    try {
+      const qr = qrcodeGen(0, "M");
+      qr.addData(shareCode);
+      qr.make();
+      const n = qr.getModuleCount();
+      const m: boolean[][] = [];
+      for (let r = 0; r < n; r++) {
+        const row: boolean[] = [];
+        for (let c = 0; c < n; c++) row.push(qr.isDark(r, c));
+        m.push(row);
+      }
+      return m;
+    } catch {
+      return null;
+    }
+  }, [shareCode]);
 
   useEffect(() => {
     loadSettings();
@@ -461,14 +484,40 @@ export default function SettingsScreen() {
           <Text style={styles.filterHint}>이 코드를 받은 사람은 API 키 없이 앱을 쓸 수 있습니다</Text>
           <View style={styles.serverBtnRow}>
             <TouchableOpacity style={[styles.serverBtn, { flex: 1 }]} onPress={handleGenerateShareCode}>
-              <Text style={styles.serverBtnText}>공유 코드 생성 + 복사</Text>
+              <Text style={styles.serverBtnText}>공유 코드 생성 / 보내기</Text>
             </TouchableOpacity>
           </View>
           {shareCode.length > 0 && (
-            <View style={styles.shareCodeBox}>
-              <Text style={styles.shareCodeLabel}>생성된 코드 (클립보드에 복사됨)</Text>
-              <Text style={styles.shareCodeText} selectable>{shareCode}</Text>
-            </View>
+            <>
+              <View style={styles.shareCodeBox}>
+                <Text style={styles.shareCodeLabel}>생성된 코드 (길게 눌러 복사하거나 공유 메뉴 사용)</Text>
+                <Text style={styles.shareCodeText} selectable>{shareCode}</Text>
+              </View>
+              {qrMatrix && (
+                <View style={styles.qrBox}>
+                  <Text style={styles.qrLabel}>친구가 QR 스캔으로 받을 수 있어요</Text>
+                  <View style={styles.qrFrame}>
+                    {qrMatrix.map((row, ri) => (
+                      <View key={ri} style={{ flexDirection: "row" }}>
+                        {row.map((dark, ci) => (
+                          <View
+                            key={ci}
+                            style={{
+                              width: 6,
+                              height: 6,
+                              backgroundColor: dark ? "#222" : "#fff",
+                            }}
+                          />
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={styles.qrHint}>
+                    친구는 카메라/QR 앱으로 스캔 → 텍스트 복사 → 본인 앱의 "공유 코드 입력" 란에 붙여넣기
+                  </Text>
+                </View>
+              )}
+            </>
           )}
         </>
       )}
@@ -558,8 +607,34 @@ export default function SettingsScreen() {
       <Text style={styles.sectionTitle}>앱 정보</Text>
       <View style={styles.settingItem}>
         <Text style={styles.settingLabel}>버전</Text>
-        <Text style={styles.settingDesc}>2.3.0</Text>
+        <Text style={styles.settingDesc}>{pkg.version}</Text>
       </View>
+      <TouchableOpacity
+        style={styles.settingItem}
+        onPress={async () => {
+          try {
+            const info = await checkForUpdate();
+            if (info.hasUpdate) {
+              Alert.alert(
+                "업데이트 있음 🎉",
+                `현재 v${info.currentVersion} → 최신 v${info.latestVersion}\n\n` +
+                  (info.releaseNotes ? info.releaseNotes.slice(0, 200) + "..." : ""),
+                [
+                  { text: "나중에", style: "cancel" },
+                  { text: "받기", onPress: () => openUpdateDownload() },
+                ]
+              );
+            } else {
+              Alert.alert("최신 버전", `현재 v${info.currentVersion} 가 최신입니다`);
+            }
+          } catch (e: any) {
+            Alert.alert("확인 실패", e.message ?? String(e));
+          }
+        }}
+      >
+        <Text style={styles.settingLabel}>🔄 업데이트 확인</Text>
+        <Text style={styles.settingDesc}>GitHub 최신 버전</Text>
+      </TouchableOpacity>
       <View style={{ height: 40 }} />
     </ScrollView>
   );
@@ -750,6 +825,25 @@ const styles = StyleSheet.create({
   },
   shareCodeLabel: { fontSize: 12, color: "#999", marginBottom: 6 },
   shareCodeText: { fontSize: 13, color: "#333", fontFamily: "monospace", lineHeight: 20 },
+  qrBox: {
+    backgroundColor: "#fff",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    alignItems: "center",
+  },
+  qrLabel: { fontSize: 13, color: "#4A90D9", fontWeight: "600", marginBottom: 12 },
+  qrFrame: {
+    padding: 12,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#eee",
+  },
+  qrHint: { fontSize: 12, color: "#777", marginTop: 12, textAlign: "center", lineHeight: 17, paddingHorizontal: 8 },
   permWarnBox: {
     backgroundColor: "#FFF3E0",
     marginHorizontal: 16,

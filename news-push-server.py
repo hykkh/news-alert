@@ -10,6 +10,7 @@ import json
 import time
 import hashlib
 import logging
+import ssl
 import urllib.request
 import urllib.parse
 import threading
@@ -17,6 +18,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from datetime import datetime
 import re
+
+# 이 PC 는 MITM 인증서 환경 (CLAUDE.md 참고) — 외부 API 검증 우회
+_SSL_CTX = ssl._create_unverified_context()
 
 # ── 설정 ──
 SCRIPT_DIR = Path(__file__).parent
@@ -44,6 +48,9 @@ NAVER_CLIENT_SECRET = os.environ.get("NAVER_CLIENT_SECRET", "")
 if not NAVER_CLIENT_ID:
     print("[FATAL] NAVER_CLIENT_ID not set. .env 파일을 확인하세요.", flush=True)
     import sys; sys.exit(1)
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 CHECK_INTERVAL = 5 * 60  # 5분마다 체크
 TOKEN_SERVER_PORT = 8889
@@ -209,11 +216,38 @@ def send_expo_push(token: str, title: str, body: str, data: dict = None) -> bool
         log.error(f"푸시 오류: {e}")
         return False
 
+# ── 텔레그램 전송 ──
+def send_telegram(keyword: str, title: str, link: str) -> bool:
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False
+    text = f"📰 [{keyword}] 새 뉴스\n\n{title}\n\n🔗 {link}"
+    payload = urllib.parse.urlencode({
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "disable_web_page_preview": "false",
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+        data=payload,
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=_SSL_CTX) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            if result.get("ok"):
+                return True
+            log.error(f"텔레그램 실패: {result}")
+            return False
+    except Exception as e:
+        log.error(f"텔레그램 오류: {e}")
+        return False
+
 # ── 뉴스 확인 ──
 def check_and_notify() -> int:
     global g_state
     token = g_state.get("push_token")
-    if not token:
+    tg_enabled = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+    if not token and not tg_enabled:
         return 0
 
     keywords = load_keywords()
@@ -246,8 +280,11 @@ def check_and_notify() -> int:
         new_hashes.append(item["hash"])
         new_count += 1
 
-        if send_expo_push(token, f'[{item["keyword"]}] 새 뉴스', item["title"], {"url": item["originallink"]}):
-            log.info(f'알림: [{item["keyword"]}] {item["title"][:40]}')
+        link = item.get("originallink") or item["link"]
+        if token and send_expo_push(token, f'[{item["keyword"]}] 새 뉴스', item["title"], {"url": link}):
+            log.info(f'Expo 알림: [{item["keyword"]}] {item["title"][:40]}')
+        if tg_enabled and send_telegram(item["keyword"], item["title"], link):
+            log.info(f'텔레그램 알림: [{item["keyword"]}] {item["title"][:40]}')
         time.sleep(0.3)
 
     if new_hashes:
@@ -300,4 +337,23 @@ def main():
         time.sleep(CHECK_INTERVAL)
 
 if __name__ == "__main__":
+    import sys
+    if "--send-latest" in sys.argv:
+        # 상태 무시하고 키워드별 최신 1건을 텔레그램으로 즉시 전송 (테스트/수동 발송용)
+        if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
+            safe_print("[FATAL] TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 미설정")
+            sys.exit(1)
+        for kw in load_keywords():
+            try:
+                items = search_news(kw, 1)
+                if not items:
+                    safe_print(f"  [{kw}] 검색 결과 없음")
+                    continue
+                it = items[0]
+                link = it.get("originallink") or it["link"]
+                ok = send_telegram(kw, it["title"], link)
+                safe_print(f"  [{kw}] {'OK' if ok else 'FAIL'}: {it['title'][:50]}")
+            except Exception as e:
+                safe_print(f"  [{kw}] 오류: {e}")
+        sys.exit(0)
     main()
