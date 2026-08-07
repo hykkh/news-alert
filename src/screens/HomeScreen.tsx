@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Linking,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { getKeywords } from "../services/keywordService";
 import { searchNews, searchGoogleNews, getApiSources, NewsItem } from "../services/newsService";
 
@@ -50,9 +51,14 @@ export default function HomeScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    fetchAllNews();
-  }, [fetchAllNews]);
+  // 화면에 들어올 때마다(키워드 탭에서 추가 후 복귀 포함) 뉴스를 다시 불러온다.
+  // 기존엔 최초 마운트 1회만 로드해서, 키워드를 추가해도 앱 재시작 전까지
+  // 뉴스가 안 뜨는 문제가 있었다.
+  useFocusEffect(
+    useCallback(() => {
+      fetchAllNews();
+    }, [fetchAllNews])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
