@@ -18,6 +18,23 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from datetime import datetime
 import re
+import sys
+# ── 한글이 깨지지 않게 (H-Programs 공통 규칙) ──────────────────────
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+os.environ.setdefault('PYTHONUTF8', '1')
+for _s in ('stdout', 'stderr'):
+    try:
+        getattr(sys, _s).reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.platform == 'win32':
+    try:
+        import ctypes as _ctypes
+        _ctypes.windll.kernel32.SetConsoleCP(65001)
+        _ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+    except Exception:
+        pass
+
 
 # 이 PC 는 MITM 인증서 환경 (CLAUDE.md 참고) — 외부 API 검증 우회
 _SSL_CTX = ssl._create_unverified_context()
