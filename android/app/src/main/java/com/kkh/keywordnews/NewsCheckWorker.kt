@@ -121,8 +121,20 @@ class NewsCheckWorker : BroadcastReceiver() {
                 }
                 Log.i(TAG, "키워드: $keywords")
 
-                // seen 해시 읽기
-                val seen = prefs.getStringSet("seen_hashes", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                // 본 뉴스 기록 읽기 — 순서 보존(LinkedHashSet + JSON).
+                // 기존엔 StringSet(순서 없음)에 저장하고 takeLast(500)로 잘라, 순서가 없으니
+                // 최근 본 뉴스가 임의로 잘려나가 다시 "새 뉴스"로 재알림되는 중복 버그가 있었다.
+                val seen = LinkedHashSet<String>()
+                val seenJson = prefs.getString("seen_list", null)
+                if (seenJson != null) {
+                    try {
+                        val a = JSONArray(seenJson)
+                        for (i in 0 until a.length()) seen.add(a.getString(i))
+                    } catch (e: Exception) {}
+                } else {
+                    // 구버전 StringSet 데이터 1회 흡수
+                    prefs.getStringSet("seen_hashes", null)?.let { seen.addAll(it) }
+                }
                 val seenTitles = mutableSetOf<String>()
                 var notifId = (System.currentTimeMillis() % 100000).toInt()
                 var newCount = 0
@@ -151,11 +163,14 @@ class NewsCheckWorker : BroadcastReceiver() {
                     }
                 }
 
-                // seen 저장 (최근 500개)
-                val limited = if (seen.size > 500) seen.toList().takeLast(500).toSet() else seen
-                prefs.edit().putStringSet("seen_hashes", limited.toMutableSet()).apply()
+                // 본 뉴스 기록 저장 — 순서대로 최근 1000개 유지(오래된 것부터 제거, 최근 것 확실히 보존).
+                // commit() 동기 저장(BroadcastReceiver 프로세스가 곧 종료돼도 유실 없게).
+                val kept = if (seen.size > 1000) seen.toList().takeLast(1000) else seen.toList()
+                val arr = JSONArray()
+                kept.forEach { arr.put(it) }
+                prefs.edit().putString("seen_list", arr.toString()).commit()
 
-                Log.i(TAG, "완료: 새 뉴스 ${newCount}건")
+                Log.i(TAG, "완료: 새 뉴스 ${newCount}건 (기록 ${kept.size}개)")
             } catch (e: Exception) {
                 Log.e(TAG, "전체 오류: ${e.message}")
             } finally {
