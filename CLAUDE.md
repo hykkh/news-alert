@@ -29,3 +29,10 @@
 - 잘못된 API 키 저장 시 검색 실패("검색 결과가 없습니다") → 설정에서 키 재입력
 
 상세 이력은 auto-memory `reference_news_alert_apk_distribution` 참조.
+
+## 사용 승인 (h-license, 2.3.5~)
+- 1회 사용 승인. 규격 `C:\H-Programs\h-license\GATE_SPEC.md`, 서버 lic.hyt.kr, 앱 id **`newsalert`**. Hoffice(`doc-viewer` License.kt/ActivationActivity.kt) 를 TS 로 옮긴 것
+- `src/services/license.ts` (기기번호=SHA-256("newsalert:"+ANDROID_ID) 앞 8바이트, 열쇠 ECDSA P-256 DER 검증=@noble/curves, AsyncStorage `license.*` 저장, 7일마다 status 재확인→revoked 면 삭제)
+- `src/screens/ActivationScreen.tsx` (신청 화면, 4초마다 status), `App.tsx` 의 `App` 이 게이트 → 승인되면 `MainApp`
+- 게이트는 화면만 막는다. 승인 전에는 MainApp 의 푸시 등록·주기 체크가 안 돈다(이미 예약된 네이티브 NewsCheckWorker 알람은 별개)
+- 시험 중 live `/api/request` 호출 금지(형님 텔레그램 알림). 검증 시험은 GATE_SPEC 의 "열쇠 검증 시험"

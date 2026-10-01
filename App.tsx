@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { StatusBar } from "expo-status-bar";
@@ -13,10 +13,49 @@ import { registerForPushNotifications, checkForNewNews } from "./src/services/no
 import { getKeywords, primeSeenOnFirstRun } from "./src/services/keywordService";
 import { primePermissionsOnFirstRun } from "./src/services/permissionsService";
 import { NativeModules } from "react-native";
+import ActivationScreen from "./src/screens/ActivationScreen";
+import * as License from "./src/services/license";
 
 const Tab = createBottomTabNavigator();
 
+// 사용 승인(h-license) 게이트: 승인 전에는 신청 화면만 보인다. 승인 뒤엔 인터넷 없이 동작.
 export default function App() {
+  const [licensed, setLicensed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    License.valid()
+      .then(setLicensed)
+      .catch(() => setLicensed(false));
+  }, []);
+
+  // 7일마다(인터넷 될 때만) 서버에 다시 물어, 사용 중지(revoked)면 열쇠를 지우고 신청 화면으로.
+  useEffect(() => {
+    if (!licensed) return;
+    const recheck = () => {
+      License.recheckIfDue().then((revoked) => {
+        if (revoked) setLicensed(false);
+      });
+    };
+    recheck();
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") recheck();
+    });
+    return () => sub.remove();
+  }, [licensed]);
+
+  if (licensed === null) return null;
+  if (!licensed) {
+    return (
+      <>
+        <StatusBar style="dark" />
+        <ActivationScreen onDone={() => setLicensed(true)} />
+      </>
+    );
+  }
+  return <MainApp />;
+}
+
+function MainApp() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
